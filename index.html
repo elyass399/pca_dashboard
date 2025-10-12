@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="style.css">
+    <style></style>
+</head>
+
+<body>
+    <h1>Clustering Dashboard</h1>
+    <div id="upload-section">
+        <input type="file" id="fileInput" />
+        <button id="uploadButton">Upload file (CSV)</button>
+    </div>
+    <div id="PCA graph">
+        <h2>PCA Graph</h2>
+        <canvas id="pcaChart"></canvas>
+        
+    </div>
+    <div id="best K">
+        <h2>Best K</h2>
+        <canvas id="bestKChart"></canvas>
+    </div>
+    <div id="KMeans graph">
+        <h2>KMeans Graph</h2>
+        <canvas id="kmeansChart"></canvas>
+    </div>
+    <div id="DBSCAN graph">
+        <h2>DBSCAN Graph</h2>
+        <canvas id="dbscanChart"></canvas>
+    </div>
+    <div id="Data Table">
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

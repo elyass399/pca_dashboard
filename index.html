@@ -3,35 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>PCA + K-Means Clustering Dashboard</title>
     <link rel="stylesheet" href="style.css">
-    <style></style>
+    <!-- Includi Chart.js per i grafici -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- Includi PapaParse (OPZIONALE: se decidi di usarlo per un parsing CSV più robusto) -->
+    <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
 
 <body>
     <h1>Clustering Dashboard</h1>
+
     <div id="upload-section">
         <input type="file" id="fileInput" />
         <button id="uploadButton">Upload file (CSV)</button>
     </div>
-    <div id="PCA graph">
-        <h2>PCA Graph</h2>
-        <canvas id="pcaChart"></canvas>
-        
+
+    <!-- La tabella dei dati viene prima -->
+    <div id="data-table" class="table-container">
+        <h2>Data Table</h2>
+        <div id="table-content">
+            <p class="no-data-message">Carica un file CSV per visualizzare i dati.</p>
+        </div>
     </div>
-    <div id="best K">
-        <h2>Best K</h2>
-        <canvas id="bestKChart"></canvas>
-    </div>
-    <div id="KMeans graph">
-        <h2>KMeans Graph</h2>
-        <canvas id="kmeansChart"></canvas>
-    </div>
-    <div id="DBSCAN graph">
-        <h2>DBSCAN Graph</h2>
-        <canvas id="dbscanChart"></canvas>
-    </div>
-    <div id="Data Table">
+    
+    <!-- Contenitore principale per i grafici per il layout a due colonne -->
+    <div id="charts-layout-container"> 
+        <!-- Riga 1 dei grafici -->
+        <div class="charts-row">
+            <div id="pca-graph" class="chart-container">
+                <h2>PCA Graph</h2>
+                <canvas id="pcaChart" width="600" height="400"></canvas>
+            </div>
+
+            <div id="best-k" class="chart-container">
+                <h2>Best K</h2>
+                <canvas id="bestKChart" width="600" height="400"></canvas>
+            </div>
+        </div>
+
+        <!-- Riga 2 dei grafici -->
+        <div class="charts-row">
+            <div id="dbscan-graph" class="chart-container">
+                <h2>DBSCAN Graph</h2>
+                <canvas id="dbscanChart" width="600" height="400"></canvas>
+            </div>
+
+            <div id="kmeans-graph" class="chart-container">
+                <h2>KMeans Graph</h2>
+                <canvas id="kmeansChart" width="600" height="400"></canvas>
+            </div>
+        </div>
     </div>
     
     <script src="script.js"></script>

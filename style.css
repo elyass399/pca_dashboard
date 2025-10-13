@@ -1,25 +1,155 @@
-upload-section {
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background-color: #f4f7f6;
+    color: #333;
+}
+
+h1, h2 {
+    color: #0056b3;
     text-align: center;
-    margin-bottom: 20px;
-    border: 1px solid #ccc;
+    margin-bottom: 25px;
+}
+
+#upload-section {
+    text-align: center;
+    margin-bottom: 40px;
+    border: 1px solid #cce0ff;
     border-radius: 8px;
     padding: 24px;
-    background: #fff;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    background: #e6f0ff;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
-PCA graph, #best K, #KMeans graph, #DBSCAN graph, #Data Table {
-    margin: 20px auto;
-    width: 80%;
+
+#upload-section input[type="file"] {
+    padding: 8px;
+    border: 1px solid #99ccff;
+    border-radius: 4px;
+    background-color: #fff;
+    cursor: pointer;
+}
+
+#upload-section button {
+    background-color: #007bff;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+    margin-left: 10px;
+}
+
+#upload-section button:hover {
+    background-color: #0056b3;
+}
+
+/* Contenitore generale per il layout dei grafici */
+#charts-layout-container {
+    margin: 40px auto;
+    width: 90%;
+    max-width: 1040px; /* Larghezza massima del contenitore */
+}
+
+/* Ogni riga di grafici - DEVE ESSERE UN CONTENITORE FLEX */
+.charts-row {
+    display: flex; /* Abilita Flexbox per questa riga */
+    flex-wrap: wrap; /* Permette ai grafici di andare a capo su schermi più piccoli */
+    justify-content: space-around; /* Spazia i grafici uniformemente */
+    align-items: flex-start; /* Allinea gli elementi all'inizio della riga */
+    gap: 30px; /* Spazio tra i grafici all'interno della riga */
+    margin-bottom: 30px; /* Spazio tra le righe di grafici */
+}
+
+.chart-container,
+.table-container {
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     text-align: center;
 }
-PCA graph canvas, #best K canvas, #KMeans graph canvas, #DBSCAN graph canvas {
-    width: 100%;
-    height: 400px;
-}
-Data Table {
-    margin: 20px auto;
-    width: 80%;
 
-    text-align: left;
+/* Contenitore del singolo grafico */
+.chart-container {
+    flex: 1; /* Permette al grafico di crescere e restringersi */
+    min-width: 450px; /* Larghezza minima per mantenere il layout a due colonne */
+    max-width: calc(50% - 15px); /* Calcola la larghezza per 2 colonne con gap */
+    box-sizing: border-box; /* Include padding e border nella larghezza */
+}
+
+.chart-container canvas {
+    width: 100% !important;
+    height: 350px !important;
+    max-height: 350px;
+}
+
+.table-container {
+    margin: 40px auto;
+    width: 90%;
+    max-width: 1000px;
+}
+
+#data-table h2 {
+    margin-top: 0;
+    margin-bottom: 20px;
+}
+
+#table-content {
+    overflow-x: auto;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+#data-table table {
+    width: 100%;
     border-collapse: collapse;
+    margin: 0 auto;
+    font-size: 0.9em;
+}
+
+#data-table th,
+#data-table td {
+    border: 1px solid #e0e0e0;
+    padding: 10px 15px;
+    text-align: left;
+}
+
+#data-table th {
+    background-color: #f0f0f0;
+    font-weight: bold;
+    color: #555;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+#data-table tbody tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+#data-table tbody tr:hover {
+    background-color: #eef;
+}
+
+.no-data-message {
+    padding: 20px;
+    color: #888;
+    font-style: italic;
+}
+
+/* Media Query per schermi più piccoli (un grafico per riga) */
+@media (max-width: 960px) {
+    .charts-row {
+        flex-direction: column; /* Impila i grafici in colonna */
+        align-items: center; /* Centra i grafici */
+        gap: 20px;
+    }
+
+    .chart-container {
+        min-width: unset; /* Rimuovi la larghezza minima */
+        max-width: 100%; /* Ogni grafico occupa la larghezza completa */
+    }
 }

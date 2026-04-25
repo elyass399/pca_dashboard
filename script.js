@@ -1,371 +1,783 @@
+/* ===================================================================
+   ClusterLab — script.js
+   Real implementations of: PCA, K-Means, DBSCAN, Elbow Method
+   + Feature distributions, Correlation heatmap, Data table
+=================================================================== */
+
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('✅ DOM completamente caricato');
 
-    const fileInput = document.getElementById('fileInput');
-    const uploadButton = document.getElementById('uploadButton');
-    const dataTableContent = document.getElementById('table-content'); // Nuovo contenitore per la tabella
-    
-    // Variabile globale per conservare i dati parsati
+    /* ── DOM refs ─────────────────────────────────────────────── */
+    const fileInput     = document.getElementById('fileInput');
+    const uploadButton  = document.getElementById('uploadButton');
+    const dropZone      = document.getElementById('dropZone');
+    const runButton     = document.getElementById('runButton');
+    const tableSearch   = document.getElementById('tableSearch');
+
+    const kSlider       = document.getElementById('kSlider');
+    const epsSlider     = document.getElementById('epsSlider');
+    const minPtsSlider  = document.getElementById('minPtsSlider');
+    const maxKSlider    = document.getElementById('maxKSlider');
+
+    const kVal      = document.getElementById('kVal');
+    const epsVal    = document.getElementById('epsVal');
+    const minPtsVal = document.getElementById('minPtsVal');
+    const maxKVal   = document.getElementById('maxKVal');
+
+    /* ── State ────────────────────────────────────────────────── */
     let parsedData = { headers: [], rows: [] };
+    let pcaResult  = null;    // { projected, eigenvectors, varRatio }
+    let kmeansResult = null;
+    let dbscanResult = null;
+    let charts = {};
+    let activeFeatureIdx = 0;
+    let fullRows = [];        // rows enriched with cluster labels
 
-    console.log('🔍 Elementi trovati:', { fileInput, uploadButton, dataTableContent });
+    const CLUSTER_COLORS = [
+        '#00e5ff','#ff3d71','#a259ff','#00ff9d','#ffb830',
+        '#ff6b6b','#4ecdc4','#45b7d1','#96ceb4','#ffeaa7'
+    ];
 
-    uploadButton.addEventListener('click', handleFileUpload);
+    /* ── Slider display ───────────────────────────────────────── */
+    kSlider.addEventListener('input',      () => { kVal.textContent = kSlider.value; });
+    maxKSlider.addEventListener('input',   () => { maxKVal.textContent = maxKSlider.value; });
+    minPtsSlider.addEventListener('input', () => { minPtsVal.textContent = minPtsSlider.value; });
+    epsSlider.addEventListener('input',    () => {
+        epsVal.textContent = (epsSlider.value / 10).toFixed(1);
+    });
 
-    // === FUNZIONE PRINCIPALE ===
-    function handleFileUpload() {
-        console.log('📁 Bottone upload cliccato');
+    /* ── Drop zone ────────────────────────────────────────────── */
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file) loadFile(file);
+    });
 
-        const file = fileInput.files[0];
-        if (!file) {
-            alert('⚠️ Seleziona un file CSV prima di caricare.');
-            console.log('❌ Nessun file selezionato');
-            return;
-        }
+    uploadButton.addEventListener('click', e => {
+        e.stopPropagation();
+        if (!fileInput.files[0]) { fileInput.click(); return; }
+        loadFile(fileInput.files[0]);
+    });
 
-        console.log('📄 File selezionato:', file.name, 'Dimensione:', file.size, 'byte');
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files[0]) loadFile(fileInput.files[0]);
+    });
 
+
+    runButton.addEventListener('click', runAnalysis);
+
+    /* ── Load & parse ─────────────────────────────────────────── */
+    function loadFile(file) {
+        if (!file.name.endsWith('.csv')) { alert('Please upload a .csv file.'); return; }
+        setStatus(`Reading ${file.name}…`);
         const reader = new FileReader();
-
-        reader.onloadstart = () => {
-            console.log('📤 Inizio lettura del file...');
-            dataTableContent.innerHTML = '<p class="no-data-message">Caricamento e parsing del file...</p>'; // Messaggio durante il caricamento
-        };
-        reader.onerror = (e) => {
-            console.error('❌ Errore durante la lettura del file:', e);
-            alert('Errore durante la lettura del file. Controlla la console per dettagli.');
-            dataTableContent.innerHTML = '<p class="no-data-message">Errore durante il caricamento del file.</p>';
-        };
-        reader.onloadend = () => console.log('✅ Lettura file completata');
-
-        reader.onload = function (e) {
-            const csvData = e.target.result;
-            console.log('🧩 Dati grezzi CSV letti (prime 200 lettere):', csvData.slice(0, 200));
-
-            // Puoi scegliere quale parser usare qui:
-            // 1. Il tuo parser Vanilla JS migliorato
-            parsedData = parseCSV(csvData); // Usa il tuo parser
-            
-            // 2. O PapaParse (decommenta e commenta la riga sopra se vuoi usarlo)
-            /*
-            Papa.parse(csvData, {
-                header: true,
-                dynamicTyping: true,
-                skipEmptyLines: true,
-                complete: function(results) {
-                    parsedData = {
-                        headers: results.meta.fields || [],
-                        rows: results.data || []
-                    };
-                    console.log('✅ Parsing completato con PapaParse:', {
-                        headers: parsedData.headers,
-                        numRows: parsedData.rows.length,
-                        exampleRow: parsedData.rows[0]
-                    });
-                    renderDataTable(parsedData);
-                    // Chiamate future per i grafici
-                    updatePCAChart(parsedData);
-                    updateBestKChart(parsedData);
-                    updateKMeansChart(parsedData);
-                    updateDBSCANChart(parsedData);
-                },
-                error: function(err) {
-                    console.error('❌ Errore durante il parsing con PapaParse:', err);
-                    alert('Si è verificato un errore durante il parsing del file CSV: ' + err.message);
-                    dataTableContent.innerHTML = '<p class="no-data-message">Errore durante il parsing del file con PapaParse.</p>';
-                }
-            });
-            return; // Esci dalla funzione, il resto del codice verrà eseguito nella callback di PapaParse
-            */
-
-
-            console.log('📊 Risultato parsing CSV:', {
-                headers: parsedData.headers,
-                numRows: parsedData.rows.length,
-                exampleRow: parsedData.rows[0]
-            });
-
-            renderDataTable(parsedData);
-            
-            // Qui in futuro chiamerai le funzioni per popolare i grafici
-            updatePCAChart(parsedData);
-            updateBestKChart(parsedData);
-            updateKMeansChart(parsedData);
-            updateDBSCANChart(parsedData);
-        };
-
+        reader.onload = e => processCSV(e.target.result, file.name);
         reader.readAsText(file);
     }
 
-    // === PARSING CSV (Vanilla JS - Versione robusta) ===
-    function parseCSV(csv) {
-        console.log('⚙️ Avvio parsing CSV robusto (Vanilla JS)...');
-
-        // 1. Pulizia generale e gestione righe vuote
-        const lines = csv.trim().split('\n').filter(line => line.trim() !== ''); // Rimuove righe completamente vuote
-
-        if (lines.length === 0) {
-            console.warn('⚠️ Il file CSV è vuoto o contiene solo righe valide.');
-            return { headers: [], rows: [] };
-        }
-
-        // 2. Rilevamento automatico del separatore
-        const potentialSeparators = [',', ';', '\t', '|']; // Aggiungiamo tab e pipe
-        let separator = ','; // Default
-        let maxSeparatorCount = -1;
-
-        // Analizziamo la prima riga per il separatore
-        const firstLine = lines[0];
-        potentialSeparators.forEach(s => {
-            const count = (firstLine.match(new RegExp('\\' + s, 'g')) || []).length;
-            if (count > maxSeparatorCount) {
-                maxSeparatorCount = count;
-                separator = s;
-            }
+    function processCSV(csvText, name = 'file.csv') {
+        Papa.parse(csvText, {
+            header: true,
+            dynamicTyping: true,
+            skipEmptyLines: true,
+            complete: results => {
+                parsedData = { headers: results.meta.fields || [], rows: results.data || [] };
+                afterDataLoad(name);
+            },
+            error: err => { alert('CSV parse error: ' + err.message); }
         });
-
-        // Se nessun separatore è stato trovato nella prima riga ma ci sono altre righe,
-        // proviamo ad analizzare la seconda riga per una migliore stima.
-        if (maxSeparatorCount === 0 && lines.length > 1) {
-            const secondLine = lines[1];
-            potentialSeparators.forEach(s => {
-                const count = (secondLine.match(new RegExp('\\' + s, 'g')) || []).length;
-                if (count > maxSeparatorCount) {
-                    maxSeparatorCount = count;
-                    separator = s;
-                }
-            });
-        }
-        
-        console.log('🔎 Separatore rilevato:', separator);
-        console.log('📏 Numero righe valide trovate:', lines.length);
-
-        // 3. Parsing degli header
-        // Usa una regex per split che tenga conto delle virgolette doppie per gli header
-        // Questo è ancora una semplificazione; un parser full-featured sarebbe necessario per casi complessi
-        const headerMatch = firstLine.match(/(".*?"|[^",;\t|]*)([,;\t|]|$)/g);
-        const headers = headerMatch ? headerMatch.map(h => h.replace(/^(["'])(.*)\1$/, '$2').replace(/""/g, '"').trim()).filter(h => h !== '') : firstLine.split(separator).map(h => h.trim());
-
-        // Se il rilevamento regex fallisce o non produce header, usa il vecchio metodo
-        if (headers.length === 0) {
-             console.warn('⚠️ Rilevamento header tramite regex fallito o non ha prodotto risultati, usando split semplice.');
-             const tempHeaders = firstLine.split(separator).map(header => header.trim());
-             // Filtra gli header vuoti che potrebbero derivare da separatori extra alla fine
-             headers.push(...tempHeaders.filter(h => h !== ''));
-        }
-
-        console.log('📋 Headers rilevati:', headers);
-
-        // 4. Parsing delle righe dati
-        const rows = lines.slice(1).map((line, index) => {
-            // Un parser CSV robusto per le righe (specialmente con virgolette e separatori interni)
-            // richiederebbe una logica più complessa. Questa è una versione migliorata ma ancora semplificata.
-            const values = [];
-            let inQuote = false;
-            let currentField = '';
-
-            for (let i = 0; i < line.length; i++) {
-                const char = line[i];
-
-                if (char === '"') {
-                    if (inQuote && line[i + 1] === '"') { // "double""quote" -> "double"quote
-                        currentField += '"';
-                        i++; // Salta il secondo apice
-                    } else {
-                        inQuote = !inQuote;
-                    }
-                } else if (char === separator && !inQuote) {
-                    values.push(currentField.trim());
-                    currentField = '';
-                } else {
-                    currentField += char;
-                }
-            }
-            values.push(currentField.trim()); // Aggiungi l'ultimo campo
-
-            const obj = {};
-            headers.forEach((header, i) => {
-                // Tenta di convertire i valori a numeri se possibile
-                const rawValue = values[i] !== undefined ? values[i] : '';
-                const numValue = Number(rawValue);
-                obj[header] = isNaN(numValue) || rawValue.trim() === '' ? rawValue : numValue;
-            });
-            return obj;
-        });
-
-        console.log('✅ Parsing completato (Vanilla JS), totale righe:', rows.length);
-        return { headers, rows };
     }
 
-    // === VISUALIZZAZIONE DATI (TABELLARE) ===
-    function renderDataTable(data) {
-        console.log('🧱 Rendering tabella...');
+    function afterDataLoad(name) {
+        const numericCols = getNumericCols(parsedData);
+        setStatus(`Loaded: ${name}`);
+        show('status-bar');
+        document.getElementById('tag-rows').textContent   = `${parsedData.rows.length} rows`;
+        document.getElementById('tag-cols').textContent   = `${parsedData.headers.length} cols`;
+        document.getElementById('tag-numeric').textContent = `${numericCols.length} numeric`;
+        show('controls-section');
+        runAnalysis();
+    }
 
-        // Rimuove la tabella precedente o il messaggio di caricamento
-        dataTableContent.innerHTML = '';
 
-        if (!data || !data.rows || data.rows.length === 0 || !data.headers || data.headers.length === 0) {
-            console.warn('⚠️ Nessuna riga o header valido trovato nel CSV per la tabella.');
-            dataTableContent.innerHTML = '<p class="no-data-message">Nessun dato valido da visualizzare. Controlla il formato del file CSV o la console per errori.</p>';
-            return;
+
+    /* ── Main analysis runner ─────────────────────────────────── */
+    function runAnalysis() {
+        const numericCols = getNumericCols(parsedData);
+        if (numericCols.length < 2) {
+            alert('Need at least 2 numeric columns to run analysis.'); return;
         }
 
-        const table = document.createElement('table');
-        const thead = document.createElement('thead');
-        const trHead = document.createElement('tr');
+        runButton.disabled = true;
+        runButton.innerHTML = '<span class="spinner"></span> Running…';
 
-        data.headers.forEach(header => {
-            const th = document.createElement('th');
-            th.textContent = header;
-            trHead.appendChild(th);
+        setTimeout(() => {
+            try {
+                const matrix = buildMatrix(parsedData, numericCols);
+                const scaled  = standardize(matrix);
+
+                // PCA
+                pcaResult = pca(scaled, 2);
+
+                // K-Means
+                const K = parseInt(kSlider.value);
+                kmeansResult = kMeans(pcaResult.projected, K);
+
+                // Elbow
+                const maxK = parseInt(maxKSlider.value);
+                const elbowData = elbowMethod(pcaResult.projected, maxK);
+
+                // DBSCAN
+                const eps    = parseFloat(epsSlider.value) / 10;
+                const minPts = parseInt(minPtsSlider.value);
+                dbscanResult = dbscan(pcaResult.projected, eps, minPts);
+
+                // Metrics
+                updateMetrics(elbowData);
+
+                // Enrich rows
+                fullRows = parsedData.rows.map((r, i) => ({
+                    ...r,
+                    __km: kmeansResult.labels[i],
+                    __db: dbscanResult.labels[i]
+                }));
+
+                // Charts
+                show('charts-section');
+                show('metrics-strip');
+                show('data-table');
+
+                drawPCAChart(pcaResult.projected);
+                drawElbowChart(elbowData);
+                drawKMeansChart(pcaResult.projected, kmeansResult);
+                drawDBSCANChart(pcaResult.projected, dbscanResult);
+                buildDistribution(parsedData, numericCols);
+                buildHeatmap(parsedData, numericCols);
+                renderTable(fullRows, parsedData.headers);
+
+                // Animate cards
+                document.querySelectorAll('.chart-card, #data-table, #metrics-strip').forEach((el, i) => {
+                    el.style.animationDelay = `${i * 0.05}s`;
+                    el.classList.add('fade-in');
+                });
+            } catch(e) {
+                console.error(e);
+                alert('Analysis error: ' + e.message);
+            }
+
+            runButton.disabled = false;
+            runButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run Analysis';
+        }, 20);
+    }
+
+    /* ════════════════════════════════════════════════════════════
+       MATH UTILITIES
+    ════════════════════════════════════════════════════════════ */
+
+    function getNumericCols(data) {
+        return data.headers.filter(h =>
+            data.rows.every(r => r[h] !== null && r[h] !== undefined && r[h] !== '' && !isNaN(Number(r[h])))
+        );
+    }
+
+    function buildMatrix(data, cols) {
+        return data.rows.map(r => cols.map(c => Number(r[c])));
+    }
+
+    function standardize(matrix) {
+        const n = matrix.length;
+        const d = matrix[0].length;
+        const means = Array(d).fill(0);
+        const stds  = Array(d).fill(0);
+
+        matrix.forEach(row => row.forEach((v, j) => means[j] += v));
+        means.forEach((_, j) => means[j] /= n);
+
+        matrix.forEach(row => row.forEach((v, j) => stds[j] += (v - means[j]) ** 2));
+        stds.forEach((_, j) => stds[j] = Math.sqrt(stds[j] / n) || 1);
+
+        return matrix.map(row => row.map((v, j) => (v - means[j]) / stds[j]));
+    }
+
+    /* ── PCA (covariance → power iteration for top 2 eigenvectors) */
+    function pca(X, nComponents = 2) {
+        const n = X.length;
+        const d = X[0].length;
+
+        // Covariance matrix
+        const cov = Array.from({length: d}, () => Array(d).fill(0));
+        for (let i = 0; i < n; i++)
+            for (let a = 0; a < d; a++)
+                for (let b = 0; b < d; b++)
+                    cov[a][b] += X[i][a] * X[i][b];
+        for (let a = 0; a < d; a++)
+            for (let b = 0; b < d; b++)
+                cov[a][b] /= (n - 1);
+
+        // Power iteration to find top nComponents eigenvectors
+        const eigenvectors = [];
+        const eigenvalues  = [];
+        let deflated = cov.map(r => [...r]);
+
+        for (let k = 0; k < nComponents; k++) {
+            let vec = Array.from({length: d}, () => Math.random() - 0.5);
+            vec = normalizeVec(vec);
+
+            for (let iter = 0; iter < 200; iter++) {
+                const next = matVecMul(deflated, vec);
+                const norm = Math.sqrt(next.reduce((s, v) => s + v*v, 0));
+                if (norm < 1e-12) break;
+                vec = next.map(v => v / norm);
+            }
+
+            const lambda = rayleighQuotient(deflated, vec);
+            eigenvectors.push(vec);
+            eigenvalues.push(lambda);
+
+            // Deflate
+            for (let a = 0; a < d; a++)
+                for (let b = 0; b < d; b++)
+                    deflated[a][b] -= lambda * vec[a] * vec[b];
+        }
+
+        // Project
+        const projected = X.map(row =>
+            eigenvectors.map(ev => dot(row, ev))
+        );
+
+        const totalVar  = cov.reduce((s, r, i) => s + r[i], 0);
+        const varRatio  = eigenvalues.map(e => e / (totalVar || 1));
+
+        return { projected, eigenvectors, eigenvalues, varRatio };
+    }
+
+    function matVecMul(M, v) {
+        return M.map(row => row.reduce((s, m, j) => s + m * v[j], 0));
+    }
+
+    function normalizeVec(v) {
+        const n = Math.sqrt(v.reduce((s, x) => s + x*x, 0));
+        return v.map(x => x / (n || 1));
+    }
+
+    function rayleighQuotient(M, v) {
+        const Mv = matVecMul(M, v);
+        return dot(v, Mv) / (dot(v, v) || 1);
+    }
+
+    function dot(a, b) { return a.reduce((s, v, i) => s + v * b[i], 0); }
+
+    /* ── K-Means ─────────────────────────────────────────────── */
+    function kMeans(X, K, maxIter = 100) {
+        const n = X.length;
+        // Init centroids via K-Means++
+        let centroids = kMeansPlusPlus(X, K);
+        let labels = new Int32Array(n);
+
+        for (let iter = 0; iter < maxIter; iter++) {
+            const prev = labels.slice();
+
+            // Assign
+            for (let i = 0; i < n; i++) {
+                let best = 0, bestD = Infinity;
+                for (let k = 0; k < K; k++) {
+                    const d = euclidean2(X[i], centroids[k]);
+                    if (d < bestD) { bestD = d; best = k; }
+                }
+                labels[i] = best;
+            }
+
+            // Update
+            const sums   = Array.from({length: K}, () => Array(X[0].length).fill(0));
+            const counts = Array(K).fill(0);
+            for (let i = 0; i < n; i++) {
+                const k = labels[i];
+                counts[k]++;
+                X[i].forEach((v, j) => sums[k][j] += v);
+            }
+            centroids = sums.map((s, k) =>
+                counts[k] ? s.map(v => v / counts[k]) : centroids[k]
+            );
+
+            // Converged?
+            if (prev.every((v, i) => v === labels[i])) break;
+        }
+
+        const inertia = X.reduce((s, x, i) => s + euclidean2(x, centroids[labels[i]]), 0);
+        return { labels: Array.from(labels), centroids, inertia };
+    }
+
+    function kMeansPlusPlus(X, K) {
+        const n = X.length;
+        const idx = [Math.floor(Math.random() * n)];
+        while (idx.length < K) {
+            const dists = X.map(x => {
+                let minD = Infinity;
+                idx.forEach(i => { const d = euclidean2(x, X[i]); if (d < minD) minD = d; });
+                return minD;
+            });
+            const total = dists.reduce((a, b) => a + b, 0);
+            let r = Math.random() * total;
+            for (let i = 0; i < n; i++) { r -= dists[i]; if (r <= 0) { idx.push(i); break; } }
+            if (idx.length < K && idx.length === idx.length - 1) idx.push(0); // fallback
+        }
+        return idx.map(i => [...X[i]]);
+    }
+
+    function euclidean2(a, b) { return a.reduce((s, v, i) => s + (v - b[i]) ** 2, 0); }
+    function euclidean(a, b)  { return Math.sqrt(euclidean2(a, b)); }
+
+    /* ── Elbow method ─────────────────────────────────────────── */
+    function elbowMethod(X, maxK) {
+        const results = [];
+        for (let k = 1; k <= maxK; k++) {
+            const { inertia } = kMeans(X, k);
+            results.push({ k, inertia });
+        }
+        return results;
+    }
+
+    function findElbow(data) {
+        if (data.length < 3) return data[data.length - 1]?.k ?? 2;
+        const n = data.length;
+        const p1 = [data[0].k, data[0].inertia];
+        const p2 = [data[n-1].k, data[n-1].inertia];
+        let maxD = -Infinity, bestK = 2;
+        for (const d of data) {
+            const dist = pointLineDistance([d.k, d.inertia], p1, p2);
+            if (dist > maxD) { maxD = dist; bestK = d.k; }
+        }
+        return bestK;
+    }
+
+    function pointLineDistance(p, a, b) {
+        const ab = [b[0]-a[0], b[1]-a[1]];
+        const ap = [p[0]-a[0], p[1]-a[1]];
+        const abLen = Math.sqrt(ab[0]**2 + ab[1]**2);
+        if (abLen === 0) return 0;
+        return Math.abs(ab[0]*ap[1] - ab[1]*ap[0]) / abLen;
+    }
+
+    /* ── DBSCAN ──────────────────────────────────────────────── */
+    function dbscan(X, eps, minPts) {
+        const n = X.length;
+        const labels = new Int32Array(n).fill(-2); // -2 = unvisited
+        let clusterId = 0;
+
+        const eps2 = eps * eps;
+        const neighbors = i => {
+            const res = [];
+            for (let j = 0; j < n; j++)
+                if (euclidean2(X[i], X[j]) <= eps2) res.push(j);
+            return res;
+        };
+
+        for (let i = 0; i < n; i++) {
+            if (labels[i] !== -2) continue;
+            const nb = neighbors(i);
+            if (nb.length < minPts) { labels[i] = -1; continue; } // noise
+
+            labels[i] = clusterId;
+            const queue = nb.filter(j => j !== i);
+
+            while (queue.length) {
+                const q = queue.shift();
+                if (labels[q] === -1) labels[q] = clusterId;
+                if (labels[q] !== -2) continue;
+                labels[q] = clusterId;
+                const qnb = neighbors(q);
+                if (qnb.length >= minPts)
+                    qnb.forEach(j => { if (labels[j] === -2 || labels[j] === -1) queue.push(j); });
+            }
+            clusterId++;
+        }
+
+        const numClusters = clusterId;
+        const noiseCount  = Array.from(labels).filter(l => l === -1).length;
+        return { labels: Array.from(labels), numClusters, noiseCount };
+    }
+
+    /* ── Pearson Correlation ─────────────────────────────────── */
+    function pearson(a, b) {
+        const n = a.length;
+        const ma = a.reduce((s, v) => s + v, 0) / n;
+        const mb = b.reduce((s, v) => s + v, 0) / n;
+        let num = 0, da = 0, db = 0;
+        for (let i = 0; i < n; i++) {
+            const xa = a[i] - ma, xb = b[i] - mb;
+            num += xa * xb; da += xa * xa; db += xb * xb;
+        }
+        return da === 0 || db === 0 ? 0 : num / Math.sqrt(da * db);
+    }
+
+    /* ════════════════════════════════════════════════════════════
+       CHART DRAWING
+    ════════════════════════════════════════════════════════════ */
+
+    const CHART_DEFAULTS = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 400 },
+        plugins: {
+            legend: {
+                labels: { color: '#8892a4', font: { family: 'Space Mono', size: 11 }, boxWidth: 10 }
+            }
+        },
+        scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#4a5568', font: { family: 'Space Mono', size: 10 } } },
+            y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#4a5568', font: { family: 'Space Mono', size: 10 } } }
+        }
+    };
+
+    function destroyChart(id) {
+        if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+    }
+
+    /* PCA scatter (coloured by K-Means cluster if available) */
+    function drawPCAChart(projected) {
+        destroyChart('pca');
+        const ctx = document.getElementById('pcaChart').getContext('2d');
+
+        const labels = kmeansResult ? kmeansResult.labels : projected.map(() => 0);
+        const K = kmeansResult ? kmeansResult.centroids.length : 1;
+
+        const datasets = Array.from({length: K}, (_, k) => ({
+            label: `Cluster ${k+1}`,
+            data: projected
+                .filter((_, i) => labels[i] === k)
+                .map(p => ({ x: p[0], y: p[1] })),
+            backgroundColor: hexAlpha(CLUSTER_COLORS[k % CLUSTER_COLORS.length], 0.7),
+            pointRadius: 4,
+            pointHoverRadius: 6
+        }));
+
+        const vr = pcaResult?.varRatio ?? [0, 0];
+
+        charts['pca'] = new Chart(ctx, {
+            type: 'scatter',
+            data: { datasets },
+            options: {
+                ...CHART_DEFAULTS,
+                plugins: {
+                    ...CHART_DEFAULTS.plugins,
+                    tooltip: { callbacks: {
+                        label: ctx => `(${ctx.parsed.x.toFixed(2)}, ${ctx.parsed.y.toFixed(2)})`
+                    }}
+                },
+                scales: {
+                    x: { ...CHART_DEFAULTS.scales.x, title: { display: true, text: `PC1 (${(vr[0]*100).toFixed(1)}% var)`, color: '#4a5568', font: { family: 'Space Mono', size: 10 } } },
+                    y: { ...CHART_DEFAULTS.scales.y, title: { display: true, text: `PC2 (${(vr[1]*100).toFixed(1)}% var)`, color: '#4a5568', font: { family: 'Space Mono', size: 10 } } }
+                }
+            }
+        });
+    }
+
+    /* Elbow chart */
+    function drawElbowChart(elbowData) {
+        destroyChart('elbow');
+        const ctx = document.getElementById('bestKChart').getContext('2d');
+        const bestK = findElbow(elbowData);
+
+        charts['elbow'] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: elbowData.map(d => d.k),
+                datasets: [{
+                    label: 'Inertia',
+                    data: elbowData.map(d => d.inertia),
+                    borderColor: '#a259ff',
+                    backgroundColor: 'rgba(162,89,255,0.12)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: elbowData.map(d => d.k === bestK ? 8 : 4),
+                    pointBackgroundColor: elbowData.map(d => d.k === bestK ? '#ff3d71' : '#a259ff'),
+                    pointBorderColor: elbowData.map(d => d.k === bestK ? '#ff3d71' : '#a259ff'),
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                ...CHART_DEFAULTS,
+                plugins: {
+                    ...CHART_DEFAULTS.plugins,
+                    tooltip: { callbacks: {
+                        label: ctx => `Inertia: ${ctx.parsed.y.toFixed(2)}${ctx.parsed.x === bestK ? '  ◀ suggested' : ''}`
+                    }}
+                },
+                scales: {
+                    x: { ...CHART_DEFAULTS.scales.x, title: { display: true, text: 'K', color: '#4a5568', font: { family: 'Space Mono', size: 10 } } },
+                    y: { ...CHART_DEFAULTS.scales.y, title: { display: true, text: 'Inertia', color: '#4a5568', font: { family: 'Space Mono', size: 10 } } }
+                }
+            }
+        });
+    }
+
+    /* K-Means chart */
+    function drawKMeansChart(projected, km) {
+        destroyChart('kmeans');
+        const ctx = document.getElementById('kmeansChart').getContext('2d');
+        const { labels, centroids } = km;
+        const K = centroids.length;
+
+        const clusterDatasets = Array.from({length: K}, (_, k) => ({
+            label: `Cluster ${k+1}`,
+            data: projected.filter((_, i) => labels[i] === k).map(p => ({ x: p[0], y: p[1] })),
+            backgroundColor: hexAlpha(CLUSTER_COLORS[k % CLUSTER_COLORS.length], 0.65),
+            pointRadius: 4,
+            pointHoverRadius: 6
+        }));
+
+        const centroidDataset = {
+            label: 'Centroids',
+            data: centroids.map(c => ({ x: c[0], y: c[1] })),
+            backgroundColor: '#fff',
+            pointStyle: 'crossRot',
+            pointRadius: 10,
+            pointHoverRadius: 12,
+            borderColor: '#fff',
+            borderWidth: 2,
+            showLine: false
+        };
+
+        charts['kmeans'] = new Chart(ctx, {
+            type: 'scatter',
+            data: { datasets: [...clusterDatasets, centroidDataset] },
+            options: CHART_DEFAULTS
+        });
+    }
+
+    /* DBSCAN chart */
+    function drawDBSCANChart(projected, db) {
+        destroyChart('dbscan');
+        const ctx = document.getElementById('dbscanChart').getContext('2d');
+        const { labels, numClusters } = db;
+
+        const datasets = [];
+        for (let k = 0; k < numClusters; k++) {
+            datasets.push({
+                label: `Cluster ${k+1}`,
+                data: projected.filter((_, i) => labels[i] === k).map(p => ({ x: p[0], y: p[1] })),
+                backgroundColor: hexAlpha(CLUSTER_COLORS[k % CLUSTER_COLORS.length], 0.7),
+                pointRadius: 4,
+                pointHoverRadius: 6
+            });
+        }
+
+        datasets.push({
+            label: 'Noise',
+            data: projected.filter((_, i) => labels[i] === -1).map(p => ({ x: p[0], y: p[1] })),
+            backgroundColor: 'rgba(100,100,100,0.4)',
+            pointStyle: 'crossRot',
+            pointRadius: 5,
+            borderColor: 'rgba(100,100,100,0.4)',
+            borderWidth: 1
         });
 
-        thead.appendChild(trHead);
-        table.appendChild(thead);
+        charts['dbscan'] = new Chart(ctx, {
+            type: 'scatter',
+            data: { datasets },
+            options: CHART_DEFAULTS
+        });
+    }
 
-        const tbody = document.createElement('tbody');
-        data.rows.forEach((row) => {
-            const tr = document.createElement('tr');
-            data.headers.forEach(header => {
-                const td = document.createElement('td');
-                // Gestisce il caso in cui un campo possa mancare in una riga (es. file malformato)
-                td.textContent = row[header] !== undefined ? row[header] : ''; 
-                tr.appendChild(td);
+    /* Feature distribution (histogram) */
+    function buildDistribution(data, numericCols) {
+        const tabs = document.getElementById('featTabs');
+        tabs.innerHTML = '';
+        numericCols.forEach((col, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'feat-tab' + (i === 0 ? ' active' : '');
+            btn.textContent = col;
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.feat-tab').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                drawHistogram(data, col);
             });
-            tbody.appendChild(tr);
+            tabs.appendChild(btn);
+        });
+        if (numericCols.length > 0) drawHistogram(data, numericCols[0]);
+    }
+
+    function drawHistogram(data, col) {
+        destroyChart('dist');
+        const ctx = document.getElementById('distChart').getContext('2d');
+        const vals = data.rows.map(r => Number(r[col])).filter(v => !isNaN(v));
+        const bins = 20;
+        const min = Math.min(...vals), max = Math.max(...vals);
+        const step = (max - min) / bins || 1;
+        const counts = Array(bins).fill(0);
+        const labels = Array.from({length: bins}, (_, i) => (min + i * step).toFixed(2));
+        vals.forEach(v => {
+            const idx = Math.min(Math.floor((v - min) / step), bins - 1);
+            counts[idx]++;
+        });
+
+        charts['dist'] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: col,
+                    data: counts,
+                    backgroundColor: 'rgba(0,229,255,0.5)',
+                    borderColor: '#00e5ff',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                ...CHART_DEFAULTS,
+                plugins: { ...CHART_DEFAULTS.plugins, legend: { display: false } },
+                scales: {
+                    x: { ...CHART_DEFAULTS.scales.x, ticks: { ...CHART_DEFAULTS.scales.x.ticks, maxTicksLimit: 10 } },
+                    y: { ...CHART_DEFAULTS.scales.y, title: { display: true, text: 'Count', color: '#4a5568', font: { family: 'Space Mono', size: 10 } } }
+                }
+            }
+        });
+    }
+
+    /* Correlation heatmap */
+    function buildHeatmap(data, numericCols) {
+        const container = document.getElementById('heatmap-container');
+        container.innerHTML = '';
+        const d = numericCols.length;
+        if (d < 2) { container.innerHTML = '<p style="color:#4a5568;font-size:0.8rem;padding:16px;font-family:\'Space Mono\',monospace">Need ≥2 numeric columns for correlation.</p>'; return; }
+
+        const cols = numericCols.slice(0, 12); // cap at 12 for readability
+        const colData = cols.map(c => data.rows.map(r => Number(r[c])));
+        const n = cols.length;
+
+        const table = document.createElement('table');
+        table.className = 'heatmap-table';
+
+        // Header
+        const thead = table.createTHead();
+        const hr = thead.insertRow();
+        hr.insertCell().textContent = '';
+        cols.forEach(c => { const th = document.createElement('th'); th.textContent = c.length > 10 ? c.slice(0,10)+'…' : c; hr.appendChild(th); });
+
+        // Body
+        const tbody = table.createTBody();
+        for (let i = 0; i < n; i++) {
+            const row = tbody.insertRow();
+            const labelCell = document.createElement('th');
+            labelCell.textContent = cols[i].length > 10 ? cols[i].slice(0,10)+'…' : cols[i];
+            row.appendChild(labelCell);
+            for (let j = 0; j < n; j++) {
+                const cell = row.insertCell();
+                const r = pearson(colData[i], colData[j]);
+                cell.textContent = r.toFixed(2);
+                const [bg, fg] = corrColor(r);
+                cell.style.background = bg;
+                cell.style.color = fg;
+                cell.title = `${cols[i]} × ${cols[j]}: ${r.toFixed(4)}`;
+            }
+        }
+
+        container.appendChild(table);
+    }
+
+    function corrColor(r) {
+        if (r > 0.7)  return ['rgba(0,229,255,0.8)', '#000'];
+        if (r > 0.4)  return ['rgba(0,229,255,0.4)', '#e2e8f0'];
+        if (r > 0.1)  return ['rgba(0,229,255,0.15)', '#e2e8f0'];
+        if (r > -0.1) return ['rgba(30,36,46,0.8)', '#e2e8f0'];
+        if (r > -0.4) return ['rgba(255,61,113,0.15)', '#e2e8f0'];
+        if (r > -0.7) return ['rgba(255,61,113,0.4)', '#e2e8f0'];
+        return ['rgba(255,61,113,0.8)', '#000'];
+    }
+
+    /* ════════════════════════════════════════════════════════════
+       DATA TABLE
+    ════════════════════════════════════════════════════════════ */
+
+    let allTableRows = [];
+
+    function renderTable(rows, headers) {
+        allTableRows = rows;
+        const extraCols = ['__km', '__db'];
+        const allHeaders = [...headers, ...extraCols];
+        drawTable(rows, allHeaders);
+
+        tableSearch.addEventListener('input', () => {
+            const q = tableSearch.value.toLowerCase();
+            const filtered = allTableRows.filter(r =>
+                headers.some(h => String(r[h]).toLowerCase().includes(q))
+            );
+            drawTable(filtered, allHeaders);
+        });
+    }
+
+    function drawTable(rows, allHeaders) {
+        const container = document.getElementById('table-content');
+        container.innerHTML = '';
+        const table = document.createElement('table');
+
+        const thead = table.createTHead();
+        const hr = thead.insertRow();
+        allHeaders.forEach(h => {
+            const th = document.createElement('th');
+            th.textContent = h === '__km' ? 'K-Means' : h === '__db' ? 'DBSCAN' : h;
+            hr.appendChild(th);
+        });
+
+        const tbody = table.createTBody();
+        const displayed = rows.slice(0, 500);
+        displayed.forEach(row => {
+            const tr = tbody.insertRow();
+            allHeaders.forEach(h => {
+                const td = tr.insertCell();
+                if (h === '__km') {
+                    const k = row[h];
+                    td.innerHTML = `<span class="cluster-badge" style="background:${hexAlpha(CLUSTER_COLORS[k % CLUSTER_COLORS.length], 0.25)};color:${CLUSTER_COLORS[k % CLUSTER_COLORS.length]};border:1px solid ${hexAlpha(CLUSTER_COLORS[k % CLUSTER_COLORS.length], 0.4)}">C${k+1}</span>`;
+                } else if (h === '__db') {
+                    const l = row[h];
+                    const label = l === -1 ? 'Noise' : `C${l+1}`;
+                    const color = l === -1 ? '#4a5568' : CLUSTER_COLORS[l % CLUSTER_COLORS.length];
+                    td.innerHTML = `<span class="cluster-badge" style="background:${hexAlpha(color, 0.2)};color:${color};border:1px solid ${hexAlpha(color, 0.35)}">${label}</span>`;
+                } else {
+                    td.textContent = row[h] !== undefined ? row[h] : '';
+                }
+            });
         });
 
         table.appendChild(tbody);
-        dataTableContent.appendChild(table); // Appende al nuovo contenitore
-
-        console.log('✅ Tabella renderizzata correttamente con', data.rows.length, 'righe e', data.headers.length, 'colonne.');
-    }
-
-    // === PLACEHOLDERS PER FUTURI GRAFICI ===
-    function updatePCAChart(data) {
-        console.log('📊 [Placeholder] PCA chart update con', data.rows.length, 'righe.');
-        const ctx = document.getElementById('pcaChart').getContext('2d');
-        if (window.pcaChartInstance) {
-            window.pcaChartInstance.destroy();
+        container.appendChild(table);
+        if (rows.length > 500) {
+            const note = document.createElement('p');
+            note.style.cssText = 'text-align:center;padding:12px;color:#4a5568;font-size:0.75rem;font-family:Space Mono,monospace';
+            note.textContent = `Showing 500 of ${rows.length} rows`;
+            container.appendChild(note);
         }
-        window.pcaChartInstance = new Chart(ctx, {
-            type: 'scatter', // O 'bar', 'line', ecc.
-            data: {
-                labels: [], // Dipenderà dai dati PCA
-                datasets: [{
-                    label: 'PCA Data (Placeholder)',
-                    data: [{x:1, y:2}, {x:3, y:4}, {x:2, y:1}], // Dati di esempio
-                    backgroundColor: 'rgba(75, 192, 192, 0.6)'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        type: 'linear',
-                        position: 'bottom'
-                    },
-                    y: {
-                        type: 'linear',
-                        position: 'left'
-                    }
-                }
-            }
-        });
     }
 
-    function updateBestKChart(data) {
-        console.log('📈 [Placeholder] Best K chart update con', data.rows.length, 'righe.');
-        const ctx = document.getElementById('bestKChart').getContext('2d');
-        if (window.bestKChartInstance) {
-            window.bestKChartInstance.destroy();
-        }
-        window.bestKChartInstance = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: ['1', '2', '3', '4', '5'],
-                datasets: [{
-                    label: 'Inertia (Elbow Method Placeholder)',
-                    data: [100, 50, 20, 18, 17], // Dati di esempio
-                    borderColor: 'rgba(153, 102, 255, 1)',
-                    backgroundColor: 'rgba(153, 102, 255, 0.2)',
-                    fill: false
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false
-            }
-        });
+    /* ── Metrics update ─────────────────────────────────────── */
+    function updateMetrics(elbowData) {
+        const vr = pcaResult?.varRatio ?? [0, 0];
+        const bestK = findElbow(elbowData);
+
+        document.getElementById('metric-inertia').textContent   = kmeansResult ? kmeansResult.inertia.toFixed(1) : '—';
+        document.getElementById('metric-clusters').textContent  = dbscanResult ? dbscanResult.numClusters : '—';
+        document.getElementById('metric-noise').textContent     = dbscanResult ? dbscanResult.noiseCount : '—';
+        document.getElementById('metric-variance').textContent  = `${((vr[0]+vr[1])*100).toFixed(1)}%`;
+        document.getElementById('metric-best-k').textContent    = bestK;
     }
 
-    function updateKMeansChart(data) {
-        console.log('🎯 [Placeholder] KMeans chart update con', data.rows.length, 'righe.');
-        const ctx = document.getElementById('kmeansChart').getContext('2d');
-        if (window.kmeansChartInstance) {
-            window.kmeansChartInstance.destroy();
-        }
-        window.kmeansChartInstance = new Chart(ctx, {
-            type: 'scatter',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Cluster 1 (Placeholder)',
-                    data: [{x:1, y:1}, {x:1.5, y:1.5}],
-                    backgroundColor: 'rgba(255, 99, 132, 0.6)'
-                },
-                {
-                    label: 'Cluster 2 (Placeholder)',
-                    data: [{x:3, y:3}, {x:3.5, y:3.5}],
-                    backgroundColor: 'rgba(54, 162, 235, 0.6)'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: { type: 'linear', position: 'bottom' },
-                    y: { type: 'linear', position: 'left' }
-                }
-            }
-        });
+    /* ── Helpers ────────────────────────────────────────────── */
+    function hexAlpha(hex, a) {
+        const r = parseInt(hex.slice(1,3), 16);
+        const g = parseInt(hex.slice(3,5), 16);
+        const b = parseInt(hex.slice(5,7), 16);
+        return `rgba(${r},${g},${b},${a})`;
     }
 
-    function updateDBSCANChart(data) {
-        console.log('🌐 [Placeholder] DBSCAN chart update con', data.rows.length, 'righe.');
-        const ctx = document.getElementById('dbscanChart').getContext('2d');
-        if (window.dbscanChartInstance) {
-            window.dbscanChartInstance.destroy();
-        }
-        window.dbscanChartInstance = new Chart(ctx, {
-            type: 'scatter',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Core Points (Placeholder)',
-                    data: [{x:1, y:5}, {x:1.2, y:4.8}],
-                    backgroundColor: 'rgba(255, 206, 86, 0.6)'
-                },
-                {
-                    label: 'Border Points (Placeholder)',
-                    data: [{x:1.5, y:5.2}, {x:0.8, y:4.5}],
-                    backgroundColor: 'rgba(75, 192, 192, 0.6)'
-                },
-                {
-                    label: 'Noise (Placeholder)',
-                    data: [{x:5, y:1}, {x:0.5, y:0.5}],
-                    backgroundColor: 'rgba(201, 203, 207, 0.6)'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: { type: 'linear', position: 'bottom' },
-                    y: { type: 'linear', position: 'left' }
-                }
-            }
-        });
+    function setStatus(msg) {
+        document.getElementById('status-text').textContent = msg;
     }
-});
+
+    function show(id) {
+        document.getElementById(id).classList.remove('hidden');
+    }
+
+
+}); // end DOMContentLoaded

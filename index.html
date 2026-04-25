@@ -3,59 +3,238 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PCA + K-Means Clustering Dashboard</title>
+    <title>PCA · Clustering Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <!-- Includi Chart.js per i grafici -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <!-- Includi PapaParse (OPZIONALE: se decidi di usarlo per un parsing CSV più robusto) -->
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
-
 <body>
-    <h1>Clustering Dashboard</h1>
 
-    <div id="upload-section">
-        <input type="file" id="fileInput" />
-        <button id="uploadButton">Upload file (CSV)</button>
+<div class="grid-bg"></div>
+
+<header>
+    <div class="header-inner">
+        <div class="logo">
+            <span class="logo-bracket">[</span>
+            <span class="logo-text">CLUSTER<span class="accent">LAB</span></span>
+            <span class="logo-bracket">]</span>
+        </div>
+        <p class="header-sub">PCA · K-Means · DBSCAN · Elbow Method</p>
     </div>
+</header>
 
-    <!-- La tabella dei dati viene prima -->
-    <div id="data-table" class="table-container">
-        <h2>Data Table</h2>
-        <div id="table-content">
-            <p class="no-data-message">Carica un file CSV per visualizzare i dati.</p>
+<main>
+
+    <!-- UPLOAD SECTION -->
+    <section id="upload-section">
+        <div class="upload-box" id="dropZone">
+            <div class="upload-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+            </div>
+            <p class="upload-title">Drop your CSV file here</p>
+            <p class="upload-sub">or click to browse — columns should be numeric for analysis</p>
+            <input type="file" id="fileInput" accept=".csv" />
+            <button class="btn-upload" id="uploadButton">
+                <span>Upload CSV</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                    <polyline points="12 5 19 12 12 19"/>
+                </svg>
+            </button>
+        </div>
+        <div class="demo-btn-wrap">
+            <button class="btn-demo" id="demoButton">Load demo dataset (Iris)</button>
+        </div>
+    </section>
+
+    <!-- STATUS BAR -->
+    <div id="status-bar" class="hidden">
+        <div class="status-inner">
+            <span id="status-text">Ready</span>
+            <div class="status-tags">
+                <span class="tag" id="tag-rows">— rows</span>
+                <span class="tag" id="tag-cols">— cols</span>
+                <span class="tag" id="tag-numeric">— numeric</span>
+            </div>
         </div>
     </div>
-    
-    <!-- Contenitore principale per i grafici per il layout a due colonne -->
-    <div id="charts-layout-container"> 
-        <!-- Riga 1 dei grafici -->
-        <div class="charts-row">
-            <div id="pca-graph" class="chart-container">
-                <h2>PCA Graph</h2>
-                <canvas id="pcaChart" width="600" height="400"></canvas>
-            </div>
 
-            <div id="best-k" class="chart-container">
-                <h2>Best K</h2>
-                <canvas id="bestKChart" width="600" height="400"></canvas>
+    <!-- CONTROLS -->
+    <section id="controls-section" class="hidden">
+        <div class="controls-grid">
+            <div class="control-card">
+                <label>K-Means clusters (K)</label>
+                <div class="slider-row">
+                    <input type="range" id="kSlider" min="2" max="10" value="3">
+                    <span class="slider-val" id="kVal">3</span>
+                </div>
+            </div>
+            <div class="control-card">
+                <label>DBSCAN ε (epsilon)</label>
+                <div class="slider-row">
+                    <input type="range" id="epsSlider" min="1" max="50" value="10">
+                    <span class="slider-val" id="epsVal">1.0</span>
+                </div>
+            </div>
+            <div class="control-card">
+                <label>DBSCAN minPts</label>
+                <div class="slider-row">
+                    <input type="range" id="minPtsSlider" min="2" max="15" value="5">
+                    <span class="slider-val" id="minPtsVal">5</span>
+                </div>
+            </div>
+            <div class="control-card">
+                <label>Max K (elbow search)</label>
+                <div class="slider-row">
+                    <input type="range" id="maxKSlider" min="3" max="15" value="8">
+                    <span class="slider-val" id="maxKVal">8</span>
+                </div>
             </div>
         </div>
+        <div class="run-wrap">
+            <button class="btn-run" id="runButton">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Run Analysis
+            </button>
+        </div>
+    </section>
 
-        <!-- Riga 2 dei grafici -->
-        <div class="charts-row">
-            <div id="dbscan-graph" class="chart-container">
-                <h2>DBSCAN Graph</h2>
-                <canvas id="dbscanChart" width="600" height="400"></canvas>
-            </div>
-
-            <div id="kmeans-graph" class="chart-container">
-                <h2>KMeans Graph</h2>
-                <canvas id="kmeansChart" width="600" height="400"></canvas>
-            </div>
+    <!-- METRICS STRIP -->
+    <div id="metrics-strip" class="hidden">
+        <div class="metric-card">
+            <div class="metric-val" id="metric-inertia">—</div>
+            <div class="metric-label">K-Means Inertia</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-val" id="metric-clusters">—</div>
+            <div class="metric-label">DBSCAN Clusters</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-val" id="metric-noise">—</div>
+            <div class="metric-label">Noise Points</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-val" id="metric-variance">—</div>
+            <div class="metric-label">PCA Variance (PC1+PC2)</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-val" id="metric-best-k">—</div>
+            <div class="metric-label">Suggested Best K</div>
         </div>
     </div>
-    
-    <script src="script.js"></script>
+
+    <!-- CHARTS GRID -->
+    <div id="charts-section" class="hidden">
+        <div class="charts-grid">
+
+            <div class="chart-card" id="card-pca">
+                <div class="chart-header">
+                    <div class="chart-title-wrap">
+                        <span class="chart-tag">01</span>
+                        <h2>PCA Projection</h2>
+                    </div>
+                    <p class="chart-desc">Data projected onto the first two principal components</p>
+                </div>
+                <div class="canvas-wrap">
+                    <canvas id="pcaChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card" id="card-elbow">
+                <div class="chart-header">
+                    <div class="chart-title-wrap">
+                        <span class="chart-tag">02</span>
+                        <h2>Elbow Method</h2>
+                    </div>
+                    <p class="chart-desc">Inertia vs K — find the "elbow" for optimal K</p>
+                </div>
+                <div class="canvas-wrap">
+                    <canvas id="bestKChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card" id="card-kmeans">
+                <div class="chart-header">
+                    <div class="chart-title-wrap">
+                        <span class="chart-tag">03</span>
+                        <h2>K-Means Clustering</h2>
+                    </div>
+                    <p class="chart-desc">Clusters on PCA space — centroids shown as ✕</p>
+                </div>
+                <div class="canvas-wrap">
+                    <canvas id="kmeansChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card" id="card-dbscan">
+                <div class="chart-header">
+                    <div class="chart-title-wrap">
+                        <span class="chart-tag">04</span>
+                        <h2>DBSCAN Clustering</h2>
+                    </div>
+                    <p class="chart-desc">Density-based clusters — grey points are noise</p>
+                </div>
+                <div class="canvas-wrap">
+                    <canvas id="dbscanChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- FEATURE DISTRIBUTIONS -->
+        <div class="chart-card full-width" id="card-dist">
+            <div class="chart-header">
+                <div class="chart-title-wrap">
+                    <span class="chart-tag">05</span>
+                    <h2>Feature Distributions</h2>
+                </div>
+                <p class="chart-desc">Histogram of each numeric feature</p>
+                <div class="feat-tabs" id="featTabs"></div>
+            </div>
+            <div class="canvas-wrap" style="height:280px">
+                <canvas id="distChart"></canvas>
+            </div>
+        </div>
+
+        <!-- CORRELATION HEATMAP -->
+        <div class="chart-card full-width" id="card-corr">
+            <div class="chart-header">
+                <div class="chart-title-wrap">
+                    <span class="chart-tag">06</span>
+                    <h2>Correlation Matrix</h2>
+                </div>
+                <p class="chart-desc">Pearson correlation between numeric features</p>
+            </div>
+            <div id="heatmap-container"></div>
+        </div>
+
+    </div>
+
+    <!-- DATA TABLE -->
+    <div id="data-table" class="hidden">
+        <div class="table-header-row">
+            <div class="chart-title-wrap">
+                <span class="chart-tag">07</span>
+                <h2>Data Table</h2>
+            </div>
+            <input type="text" id="tableSearch" placeholder="Search…" class="table-search"/>
+        </div>
+        <div id="table-content"></div>
+    </div>
+
+</main>
+
+<footer>
+    <p>ClusterLab — PCA + K-Means + DBSCAN in the browser · no server required</p>
+</footer>
+
+<script src="script.js"></script>
 </body>
 </html>
